@@ -140,6 +140,7 @@ def main() -> None:
         raise
 
     print(f"num_action_tokens: {head_inputs['num_action_tokens']}")
+    print(f"action_hidden shape: {tuple(head_inputs['action_hidden'].shape)}")
     print(f"current_hidden shape: {tuple(head_inputs['current_hidden'].shape)}")
     print(f"chunk_hidden shape: {tuple(head_inputs['chunk_hidden'].shape)}")
 
@@ -163,7 +164,10 @@ def main() -> None:
     batch = build_fake_kkt_batch(args.batch_size, args.chunk_size, config.direction_dim)
     loss_config = KKTTrainingLossConfig()
     losses = compute_total_kkt_sense_loss(predictions, batch, loss_config)
-    print(f"total_loss: {float(losses['total_loss'])}")
+    total_loss = losses["total_loss"]
+    if not torch.isfinite(total_loss).all():
+        raise SystemExit("error: non-finite total_loss: %s" % total_loss)
+    print(f"total_loss: {float(total_loss)}")
 
 
 if __name__ == "__main__":
