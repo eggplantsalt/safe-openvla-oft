@@ -196,3 +196,13 @@ Masking:
 - chunk mask = chunk_has_kkt * chunk_qp_valid * action_chunk_mask
 
 Phase 9A only runs CPU dry-run with fake predictions; no model forward or training.
+
+## Phase 9B KKT Heads (Dry-Run)
+
+Heads:
+- current head: takes (B, hidden_dim) and outputs dual/active/h/direction
+- chunk head: takes (B, T, hidden_dim) and outputs per-step dual/active/h/direction
+
+Notes:
+- active output is a logit (for BCEWithLogitsLoss)
+- heads are not yet wired to OpenVLA hidden states in Phase 9B

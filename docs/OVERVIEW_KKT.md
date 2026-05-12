@@ -210,6 +210,11 @@
 - 不修改 finetune.py，不进入 training loop，不调用 model forward。
 - 该阶段为后续训练接入的最后一层损失定义与 mask 逻辑确认。
 
+## 17. Phase 9B：KKT Heads Dry-Run
+
+- 新增 KKT auxiliary heads 并使用 fake hidden states 做形状与 loss 兼容性检查。
+- 不修改 finetune.py，不调用真实 model.forward。
+
 ---
 
 **完成后报告**
