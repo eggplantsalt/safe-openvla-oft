@@ -27,8 +27,12 @@ class KKTTrainingLossConfig:
 
 
 def masked_mean(loss: torch.Tensor, mask: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    if not isinstance(loss, torch.Tensor) or not isinstance(mask, torch.Tensor):
+        raise TypeError("loss and mask must be torch.Tensor")
+    mask = mask.to(device=loss.device, dtype=loss.dtype)
     masked = loss * mask
-    return masked.sum() / (mask.sum() + eps)
+    denom = torch.ones_like(loss) * mask
+    return masked.sum() / (denom.sum() + eps)
 
 
 def compute_action_chunk_loss(
@@ -54,10 +58,11 @@ def compute_kkt_current_losses(
 ) -> Dict[str, torch.Tensor]:
     mask = masks["current_has_kkt"] * masks["current_qp_valid"]
 
-    dual_loss = torch.tensor(0.0)
-    active_loss = torch.tensor(0.0)
-    h_loss = torch.tensor(0.0)
-    direction_loss = torch.tensor(0.0)
+    ref_tensor = next(iter(target_current.values()))
+    dual_loss = ref_tensor.new_tensor(0.0)
+    active_loss = ref_tensor.new_tensor(0.0)
+    h_loss = ref_tensor.new_tensor(0.0)
+    direction_loss = ref_tensor.new_tensor(0.0)
 
     if pred_current.get("dual_cbf_main") is not None:
         dual_l1 = torch.abs(pred_current["dual_cbf_main"] - target_current["dual_cbf_main"])
@@ -116,10 +121,11 @@ def compute_kkt_chunk_losses(
 ) -> Dict[str, torch.Tensor]:
     chunk_mask = masks["chunk_has_kkt"] * masks["chunk_qp_valid"] * masks["action_chunk_mask"].unsqueeze(-1)
 
-    dual_loss = torch.tensor(0.0)
-    active_loss = torch.tensor(0.0)
-    h_loss = torch.tensor(0.0)
-    direction_loss = torch.tensor(0.0)
+    ref_tensor = next(iter(target_chunk.values()))
+    dual_loss = ref_tensor.new_tensor(0.0)
+    active_loss = ref_tensor.new_tensor(0.0)
+    h_loss = ref_tensor.new_tensor(0.0)
+    direction_loss = ref_tensor.new_tensor(0.0)
 
     if pred_chunk.get("dual_cbf_main") is not None:
         dual_l1 = torch.abs(pred_chunk["dual_cbf_main"] - target_chunk["dual_cbf_main"])
@@ -188,8 +194,8 @@ def compute_total_kkt_sense_loss(
 
     action_loss = compute_action_chunk_loss(pred_actions, target_actions, action_chunk_mask)
 
-    current_kkt_loss = torch.tensor(0.0)
-    chunk_kkt_loss = torch.tensor(0.0)
+    current_kkt_loss = action_loss.new_tensor(0.0)
+    chunk_kkt_loss = action_loss.new_tensor(0.0)
     current_components = {}
     chunk_components = {}
 

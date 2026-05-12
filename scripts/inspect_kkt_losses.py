@@ -54,8 +54,7 @@ def main() -> None:
     )
 
     if len(dataset) == 0:
-        print("No records found.")
-        return
+        raise SystemExit("error: no records found. Check manifest path, require_kkt filtering, and exported steps.jsonl files.")
 
     start_index = min(args.start_index, len(dataset) - 1)
     batch_size = min(args.batch_size, len(dataset) - start_index)
@@ -152,6 +151,10 @@ def main() -> None:
         print("  h_loss:", float(loss_output["chunk_h_loss"].item()))
         print("  direction_loss:", float(loss_output["chunk_direction_loss"].item()))
         print("  total_chunk_kkt_loss:", float(loss_output["chunk_total_chunk_kkt_loss"].item()))
+
+    for key, value in loss_output.items():
+        if not torch.isfinite(value).all():
+            raise SystemExit("error: non-finite loss detected for %s: %s" % (key, value))
 
     print("Total loss:", float(loss_output["total_loss"].item()))
 
