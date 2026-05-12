@@ -153,3 +153,19 @@ Padding behavior:
 - If future steps are unavailable, actions and KKT fields are padded with zeros.
 - action_chunk_mask marks valid steps with 1.0 and padding with 0.0.
 - kkt_chunk.has_kkt and kkt_chunk.qp_valid are forced to 0.0 on padded positions.
+
+## Phase 8D Pretraining-Style Batch Schema
+
+Phase 8D builds an inspection batch that resembles finetune.py inputs without using the
+real OpenVLA processor or tokenizer.
+
+Key points:
+- Dummy tokenization is used only for interface inspection; it is not the final training tokenizer.
+- pixel_values are simple float32 [0,1] conversions; real training must use the OpenVLA image processor.
+
+Batch fields (summary):
+- pixel_values.agentview / pixel_values.wrist
+- input_ids / attention_mask / labels
+- actions / action_chunk_mask / proprio
+- kkt_targets.current / kkt_targets.chunk
+- kkt_masks.current_* / kkt_masks.chunk_* / action_chunk_mask

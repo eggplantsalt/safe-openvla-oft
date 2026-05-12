@@ -192,6 +192,12 @@
 - 该 adapter 是接入 finetune 前的中间层，用于验证 chunk 对齐与 padding 规则。
 - 仍不进入 training loop。
 
+## 14. Phase 8D：Pretraining-Style Batch Adapter
+
+- 新增预训练风格 batch adapter，输出接近 finetune.py 期望的 batch keys（但使用 dummy tokenization）。
+- 不修改 finetune.py，不进入 training loop。
+- 为 Phase 8E 接入真实 processor/tokenizer 做准备。
+
 ---
 
 **完成后报告**
