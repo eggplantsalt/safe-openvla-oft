@@ -76,11 +76,13 @@ def main() -> None:
 
     print("Dataset length:", len(dataset))
     if len(dataset) == 0:
-        print("No records found.")
-        return
+        raise SystemExit("error: no records found. Check manifest path, require_kkt filtering, and exported steps.jsonl files.")
 
     if args.processor_mode == "real" and not args.processor_path:
         raise SystemExit("processor_mode=real requires --processor-path")
+
+    if args.processor_mode == "real" and not args.load_images:
+        raise SystemExit("processor_mode=real requires --load-images so the processor receives image inputs")
 
     start_index = min(args.start_index, len(dataset) - 1)
     batch_size = min(args.batch_size, len(dataset) - start_index)
@@ -112,6 +114,16 @@ def main() -> None:
     print("Model input keys:", batch["processor_debug"]["model_input_keys"])
 
     model_inputs = batch["model_inputs"]
+
+    if args.load_images:
+        pixel_values = model_inputs.get("pixel_values") if hasattr(model_inputs, "get") else None
+        if pixel_values is None:
+            raise SystemExit("error: model_inputs.pixel_values is None despite --load-images")
+        if not args.no_wrist_image and batch["processor_debug"]["processor_mode"] == "dummy":
+            wrist_values = model_inputs.get("wrist_pixel_values") if hasattr(model_inputs, "get") else None
+            if wrist_values is None:
+                raise SystemExit("error: model_inputs.wrist_pixel_values is None in dummy mode despite --load-images")
+
     for key, value in model_inputs.items():
         print("  %s: %s" % (key, _stats(value)))
 
