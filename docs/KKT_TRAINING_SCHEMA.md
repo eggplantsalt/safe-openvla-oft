@@ -259,3 +259,35 @@ Bridge outputs:
 - predictions.kkt_current: dict or None
 - predictions.kkt_chunk: dict or None
 - hidden.action_hidden/current_hidden/chunk_hidden
+
+## Phase 9E Finetune Hook (Opt-In)
+
+Phase 9E adds an opt-in hook layer in finetune.py that computes KKT auxiliary
+losses from real OpenVLA hidden states. Default behavior is unchanged unless
+the feature is explicitly enabled.
+
+Hook module:
+- prismatic/training/kkt_finetune_hooks.py
+
+Opt-in args (finetune.py):
+- enable_kkt_sense_training (default false)
+- kkt_loss_weight
+- kkt_dual_loss_weight
+- kkt_active_loss_weight
+- kkt_h_loss_weight
+- kkt_direction_loss_weight
+- kkt_direction_loss_type
+- kkt_hidden_dim (optional override)
+- kkt_chunk_size (optional override)
+- kkt_direction_dim
+
+Requirements:
+- batch must include actions, action_chunk_mask, kkt_targets, kkt_masks
+- action shapes must match (B, T, 7) unless overridden
+- KKT loss is added to the original action loss only when enabled
+- KKT hook must use text_hidden_states (post vision patches) since action masks index into that sequence
+- kkt_chunk_size must be passed explicitly; do not default to NUM_ACTIONS_CHUNK
+
+Risk note:
+- constants mismatch observed in some environments (NUM_ACTIONS_CHUNK=5, PROPRIO_DIM=7)
+  vs KKT samples (chunk_size=8, state_dim=8), so explicit shape validation is required.

@@ -50,6 +50,11 @@ from prismatic.training.train_utils import (
     get_current_action_mask,
     get_next_actions_mask,
 )
+from prismatic.training.kkt_finetune_hooks import (
+    KKTFinetuneHookConfig,
+    compute_kkt_auxiliary_loss_from_finetune_outputs,
+    init_kkt_heads_for_model,
+)
 from prismatic.util.data_utils import PaddedCollatorForActionPrediction
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.constants import (
@@ -116,6 +121,18 @@ class FinetuneConfig:
     run_id_note: Optional[str] = None                # Extra note to add to end of run ID for logging
     run_id_override: Optional[str] = None            # Optional string to override the run ID with
     wandb_log_freq: int = 10                         # WandB logging frequency in steps
+
+    # KKT-SenseVLA (opt-in)
+    enable_kkt_sense_training: bool = False          # Experimental KKT-SenseVLA training hook (disabled by default)
+    kkt_loss_weight: float = 1.0                     # Scaling applied to KKT auxiliary loss
+    kkt_dual_loss_weight: float = 0.1                # KKT dual loss weight
+    kkt_active_loss_weight: float = 0.1              # KKT active loss weight
+    kkt_h_loss_weight: float = 0.05                  # KKT h loss weight
+    kkt_direction_loss_weight: float = 0.05          # KKT direction loss weight
+    kkt_direction_loss_type: str = "cosine"          # "cosine" or "mse"
+    kkt_hidden_dim: Optional[int] = None             # Override hidden size for KKT heads
+    kkt_chunk_size: Optional[int] = None             # Override action chunk size for KKT heads
+    kkt_direction_dim: int = 6                       # KKT direction vector size
 
     # fmt: on
 
@@ -279,6 +296,8 @@ def run_forward_pass(
     use_proprio,
     use_film,
     num_patches,
+    kkt_head=None,
+    kkt_hook_config: Optional[KKTFinetuneHookConfig] = None,
     compute_diffusion_l1=False,
     num_diffusion_steps_train=None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
@@ -414,6 +433,30 @@ def run_forward_pass(
                         use_proprio=use_proprio,
                         use_film=use_film,
                     )
+
+        if kkt_hook_config is not None and kkt_hook_config.enable_kkt_sense_training:
+            # KKT-SenseVLA experimental opt-in branch; disabled by default.
+            # KKT hook consumes the same text/action-token hidden sequence that the action head masks index into.
+            kkt_output = compute_kkt_auxiliary_loss_from_finetune_outputs(
+                kkt_head=kkt_head,
+                output_hidden_states_last=text_hidden_states,
+                current_action_mask=current_action_mask,
+                next_actions_mask=next_actions_mask,
+                batch=batch,
+                hook_config=kkt_hook_config,
+                predicted_actions=None,
+            )
+            if kkt_output is None:
+                raise ValueError("KKT hook returned None while enabled")
+            kkt_loss = kkt_output["kkt_loss"] * kkt_hook_config.kkt_loss_weight
+            loss = loss + kkt_loss
+            metrics.update(
+                {
+                    "kkt_loss": float(kkt_output["kkt_loss"].item()),
+                    "kkt_current_loss": float(kkt_output["kkt_current_loss"].item()),
+                    "kkt_chunk_loss": float(kkt_output["kkt_chunk_loss"].item()),
+                }
+            )
 
         metrics.update(
             {
@@ -678,6 +721,8 @@ def run_validation(
     log_step,
     distributed_state,
     val_time_limit,
+    kkt_head=None,
+    kkt_hook_config: Optional[KKTFinetuneHookConfig] = None,
 ) -> None:
     """
     Compute validation set metrics for logging.
@@ -722,6 +767,8 @@ def run_validation(
                 use_proprio=cfg.use_proprio,
                 use_film=cfg.use_film,
                 num_patches=num_patches,
+                kkt_head=kkt_head,
+                kkt_hook_config=kkt_hook_config,
                 compute_diffusion_l1=True,
                 num_diffusion_steps_train=cfg.num_diffusion_steps_train if cfg.use_diffusion else None,
             )
@@ -770,6 +817,8 @@ def finetune(cfg: FinetuneConfig) -> None:
     assert not (cfg.use_l1_regression and cfg.use_diffusion), (
         "Cannot do both L1 regression and diffusion. Please pick one of them!"
     )
+    if cfg.enable_kkt_sense_training and not (cfg.use_l1_regression or cfg.use_diffusion):
+        raise ValueError("KKT-SenseVLA hooks require continuous action training (L1 regression or diffusion)")
 
     # Trim trailing forward slash ('/') in VLA path if it exists
     cfg.vla_path = cfg.vla_path.rstrip("/")
@@ -914,6 +963,41 @@ def finetune(cfg: FinetuneConfig) -> None:
             NoisyActionProjector, "noisy_action_projector", cfg, device_id, {"llm_dim": vla.module.llm_dim}
         )
 
+    kkt_head = None
+    kkt_hook_config = None
+    if cfg.enable_kkt_sense_training:
+        # KKT-SenseVLA experimental opt-in branch; disabled by default.
+        kkt_hidden_dim = cfg.kkt_hidden_dim or getattr(vla.module, "llm_dim", None)
+        if kkt_hidden_dim is None:
+            raise ValueError("Unable to infer kkt_hidden_dim; set --kkt_hidden_dim explicitly")
+        if cfg.kkt_chunk_size is None:
+            raise ValueError(
+                "KKT training requires explicit --kkt_chunk_size because repository constants may differ from KKT sample chunk size."
+            )
+        kkt_chunk_size = cfg.kkt_chunk_size
+
+        kkt_hook_config = KKTFinetuneHookConfig(
+            enable_kkt_sense_training=True,
+            kkt_loss_weight=cfg.kkt_loss_weight,
+            kkt_dual_loss_weight=cfg.kkt_dual_loss_weight,
+            kkt_active_loss_weight=cfg.kkt_active_loss_weight,
+            kkt_h_loss_weight=cfg.kkt_h_loss_weight,
+            kkt_direction_loss_weight=cfg.kkt_direction_loss_weight,
+            direction_loss_type=cfg.kkt_direction_loss_type,
+            kkt_hidden_dim=kkt_hidden_dim,
+            kkt_chunk_size=kkt_chunk_size,
+            kkt_direction_dim=cfg.kkt_direction_dim,
+        )
+        kkt_head = init_kkt_heads_for_model(
+            hidden_dim=kkt_hidden_dim,
+            chunk_size=kkt_chunk_size,
+            direction_dim=cfg.kkt_direction_dim,
+            use_current=True,
+            use_chunk=True,
+        )
+        kkt_head = kkt_head.to(device_id)
+        kkt_head = wrap_ddp(kkt_head, device_id, find_unused=True)
+
     # Get number of vision patches
     NUM_PATCHES = vla.module.vision_backbone.get_num_patches() * vla.module.vision_backbone.get_num_images_in_input()
     # If we have proprio inputs, a single proprio embedding is appended to the end of the vision patch embeddings
@@ -931,6 +1015,8 @@ def finetune(cfg: FinetuneConfig) -> None:
         trainable_params += [param for param in noisy_action_projector.parameters() if param.requires_grad]
     if cfg.use_proprio:
         trainable_params += [param for param in proprio_projector.parameters() if param.requires_grad]
+    if cfg.enable_kkt_sense_training:
+        trainable_params += [param for param in kkt_head.parameters() if param.requires_grad]
     print(f"# total trainable params: {sum(p.numel() for p in trainable_params)}")
     optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
 
@@ -1027,6 +1113,14 @@ def finetune(cfg: FinetuneConfig) -> None:
         "next_actions_accuracy": deque(maxlen=cfg.grad_accumulation_steps),
         "next_actions_l1_loss": deque(maxlen=cfg.grad_accumulation_steps),
     }
+    if cfg.enable_kkt_sense_training:
+        recent_metrics.update(
+            {
+                "kkt_loss": deque(maxlen=cfg.grad_accumulation_steps),
+                "kkt_current_loss": deque(maxlen=cfg.grad_accumulation_steps),
+                "kkt_chunk_loss": deque(maxlen=cfg.grad_accumulation_steps),
+            }
+        )
 
     # Start training
     with tqdm.tqdm(total=cfg.max_steps, leave=False) as progress:
@@ -1048,6 +1142,8 @@ def finetune(cfg: FinetuneConfig) -> None:
                 use_proprio=cfg.use_proprio,
                 use_film=cfg.use_film,
                 num_patches=NUM_PATCHES,
+                kkt_head=kkt_head,
+                kkt_hook_config=kkt_hook_config,
                 compute_diffusion_l1=compute_diffusion_l1,
                 num_diffusion_steps_train=cfg.num_diffusion_steps_train if cfg.use_diffusion else None,
             )
@@ -1128,6 +1224,8 @@ def finetune(cfg: FinetuneConfig) -> None:
                     log_step=log_step,
                     distributed_state=distributed_state,
                     val_time_limit=cfg.val_time_limit,
+                    kkt_head=kkt_head,
+                    kkt_hook_config=kkt_hook_config,
                 )
                 # Set model back to training mode after validation
                 vla.train()

@@ -228,6 +228,14 @@
 - 仍不修改 finetune.py，不调用真实 model.forward。
 - 下一步 Phase 9E 再讨论最小侵入训练接入分支。
 
+## 20. Phase 9E：Finetune Hook (Opt-In)
+
+- 首次最小接触 finetune.py，新增默认关闭的 KKT-SenseVLA hook。
+- 复用 text_hidden_states 与 action-token mask 计算 KKT loss，并加回原 action loss。
+- 默认关闭，不影响原训练流程；未启用时无行为变化。
+- kkt_chunk_size 必须显式传入，避免 NUM_ACTIONS_CHUNK 与 KKT 样本 chunk_size 不一致。
+- 下一步 Phase 9F 再考虑真实训练 smoke test 或更完整 dataloader 接入。
+
 ---
 
 **完成后报告**
