@@ -186,6 +186,12 @@
 - 新增 `KKTOpenVLASampleDataset` 与 `collate_kkt_openvla_samples` 仅做样本与 batch inspection。
 - 仍不进入训练 loop；KKT loss 接入仍需后续阶段评估。
 
+## 13. Phase 8C：Chunked Pretraining Adapter
+
+- 新增 `KKTChunkedOpenVLADataset` 与 `collate_kkt_openvla_chunk_samples` 生成 action chunk 与 KKT chunk。
+- 该 adapter 是接入 finetune 前的中间层，用于验证 chunk 对齐与 padding 规则。
+- 仍不进入 training loop。
+
 ---
 
 **完成后报告**

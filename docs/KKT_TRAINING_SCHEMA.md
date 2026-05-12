@@ -130,3 +130,26 @@ python scripts/inspect_kkt_openvla_samples.py \
   --manifest-path /PATH/TO/manifest.json \
   --load-images
 ```
+
+## Phase 8C Chunked Schema (Pretraining-Style)
+
+To align with OpenVLA-OFT training expectations (NUM_ACTIONS_CHUNK), each sample is expanded into
+an action chunk with padding and masks.
+
+Current step inputs:
+- instruction
+- agentview_image / wrist_image (optional)
+- state (current step only)
+
+Action chunk targets:
+- actions: shape (chunk_size, 7)
+- action_chunk_mask: shape (chunk_size,)
+
+KKT targets:
+- kkt_current: current step KKT signals
+- kkt_chunk: per-step KKT signals for the action chunk
+
+Padding behavior:
+- If future steps are unavailable, actions and KKT fields are padded with zeros.
+- action_chunk_mask marks valid steps with 1.0 and padding with 0.0.
+- kkt_chunk.has_kkt and kkt_chunk.qp_valid are forced to 0.0 on padded positions.
