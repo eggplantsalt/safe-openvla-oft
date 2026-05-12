@@ -204,6 +204,12 @@
 - real 模式只允许本地 processor，不触发下载。
 - 不修改 finetune.py，不进入 training loop，不调用 model forward。
 
+## 16. Phase 9A：KKT Loss Schema Dry-Run
+
+- 新增 KKT loss 计算模块与 dry-run 脚本，仅做 CPU 形状与数值检查。
+- 不修改 finetune.py，不进入 training loop，不调用 model forward。
+- 该阶段为后续训练接入的最后一层损失定义与 mask 逻辑确认。
+
 ---
 
 **完成后报告**

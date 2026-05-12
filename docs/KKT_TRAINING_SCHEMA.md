@@ -181,3 +181,18 @@ Notes:
 - real mode must not download any files; it only uses local paths.
 - dummy mode is not a substitute for the real tokenizer or processor.
 - no model forward or loss computation happens in Phase 8E.
+
+## Phase 9A KKT Loss Schema (Dry-Run)
+
+Loss components:
+- action loss: L1 on action chunks with action_chunk_mask
+- dual loss: L1 on dual_cbf_main
+- active loss: BCEWithLogits on active_cbf_main
+- h loss: L1 on h
+- direction loss: cosine (1 - cos) or MSE on constraint_direction
+
+Masking:
+- current mask = current_has_kkt * current_qp_valid
+- chunk mask = chunk_has_kkt * chunk_qp_valid * action_chunk_mask
+
+Phase 9A only runs CPU dry-run with fake predictions; no model forward or training.
