@@ -52,14 +52,19 @@ def main() -> None:
 
     print("Dataset length:", len(dataset))
     if len(dataset) == 0:
-        print("No records found.")
-        return
+        raise SystemExit("error: no records found. Check manifest path, require_kkt filtering, and exported steps.jsonl files.")
 
     sample = dataset[0]
     print("Sample metadata:", json.dumps(sample["metadata"], indent=2))
     print("Instruction:", sample["instruction"])
     print("Agentview image path:", sample["agentview_image_path"])
     print("Wrist image path:", sample["wrist_image_path"])
+
+    if args.load_images:
+        if sample["agentview_image"] is None:
+            raise SystemExit("error: failed to load agentview image: %s" % sample["agentview_image_path"])
+        if sample["wrist_image"] is None:
+            raise SystemExit("error: failed to load wrist image: %s" % sample["wrist_image_path"])
 
     print("State shape:", sample["state"].shape)
     print("Action shape:", sample["action"].shape)
@@ -95,8 +100,12 @@ def main() -> None:
     print("  masks:", mask_stats)
 
     if args.load_images:
-        print("  agentview_images:", batch["agentview_images"].shape if batch["agentview_images"] is not None else None)
-        print("  wrist_images:", batch["wrist_images"].shape if batch["wrist_images"] is not None else None)
+        if batch["agentview_images"] is None:
+            raise SystemExit("error: agentview image batch is None despite --load-images")
+        if batch["wrist_images"] is None:
+            raise SystemExit("error: wrist image batch is None despite --load-images")
+        print("  agentview_images:", batch["agentview_images"].shape)
+        print("  wrist_images:", batch["wrist_images"].shape)
 
 
 if __name__ == "__main__":
