@@ -221,6 +221,13 @@
 - 使用 fake last_hidden_states 和 fake mask 做 KKT heads + loss dry-run。
 - 仍不修改 finetune.py，不调用真实 model.forward。
 
+## 19. Phase 9D：Standalone Forward Bridge Dry-Run
+
+- 新增 standalone forward bridge，模拟 run_forward_pass 的 action/KKT 预测接口。
+- fake OpenVLA hidden states -> action head + KKT heads -> total loss（CPU dry-run）。
+- 仍不修改 finetune.py，不调用真实 model.forward。
+- 下一步 Phase 9E 再讨论最小侵入训练接入分支。
+
 ---
 
 **完成后报告**

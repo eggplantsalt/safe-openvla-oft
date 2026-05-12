@@ -230,3 +230,32 @@ Outputs:
 - current_hidden: shape (B, H)
 - chunk_hidden: shape (B, chunk_size, H)
 - num_action_tokens: int
+
+## Phase 9D Standalone Forward Bridge (Dry-Run)
+
+Phase 9D adds a standalone bridge that stitches together:
+- action-token hidden extraction
+- a lightweight action chunk head (dry-run only)
+- KKTMultiHead
+- total KKT loss computation
+
+This bridge simulates the run_forward_pass interface but does not call
+real OpenVLA forward or modify finetune.py.
+
+Bridge module:
+- prismatic/training/kkt_forward_bridge.py
+
+Lightweight action head:
+- input: chunk_hidden shape (B, T, H)
+- output: pred_actions shape (B, T, action_dim)
+- note: this head is only for dry-run and is NOT the OpenVLA action head
+
+Bridge inputs:
+- last_hidden_states: shape (B, L, H)
+- action_token_mask: shape (B, L)
+
+Bridge outputs:
+- predictions.actions: shape (B, T, action_dim)
+- predictions.kkt_current: dict or None
+- predictions.kkt_chunk: dict or None
+- hidden.action_hidden/current_hidden/chunk_hidden
