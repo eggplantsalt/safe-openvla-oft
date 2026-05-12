@@ -192,6 +192,6 @@ class KKTSidecarIndex:
             "constraint_gradients",
         ]
         for field in required:
-            if field not in record:
+            if field not in record or record.get(field) is None:
                 return False
         return True
