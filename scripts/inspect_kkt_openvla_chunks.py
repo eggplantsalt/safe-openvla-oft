@@ -55,11 +55,16 @@ def main() -> None:
 
     print("Dataset length:", len(dataset))
     if len(dataset) == 0:
-        print("No records found.")
-        return
+        raise SystemExit("error: no records found. Check manifest path, require_kkt filtering, and exported steps.jsonl files.")
 
     start_index = min(args.start_index, len(dataset) - 1)
     sample = dataset[start_index]
+
+    if args.load_images:
+        if sample["agentview_image"] is None:
+            raise SystemExit("error: failed to load agentview image: %s" % sample["agentview_image_path"])
+        if sample["wrist_image"] is None:
+            raise SystemExit("error: failed to load wrist image: %s" % sample["wrist_image_path"])
 
     print("Sample metadata:", json.dumps(sample["metadata"], indent=2))
     print("State shape:", sample["state"].shape)
@@ -77,8 +82,8 @@ def main() -> None:
     for key, value in sample["kkt_chunk"].items():
         print("  %s: %s" % (key, _stats(value)))
 
-    batch_size = min(args.batch_size, len(dataset))
-    batch_samples = [dataset[i] for i in range(batch_size)]
+    end_index = min(start_index + args.batch_size, len(dataset))
+    batch_samples = [dataset[i] for i in range(start_index, end_index)]
     batch = collate_kkt_openvla_chunk_samples(batch_samples)
 
     print("Batch stats:")
@@ -103,8 +108,12 @@ def main() -> None:
         print("    %s: %s" % (key, _stats(value)))
 
     if args.load_images:
-        print("  agentview_images:", batch["agentview_images"].shape if batch["agentview_images"] is not None else None)
-        print("  wrist_images:", batch["wrist_images"].shape if batch["wrist_images"] is not None else None)
+        if batch["agentview_images"] is None:
+            raise SystemExit("error: agentview image batch is None despite --load-images")
+        if batch["wrist_images"] is None:
+            raise SystemExit("error: wrist image batch is None despite --load-images")
+        print("  agentview_images:", batch["agentview_images"].shape)
+        print("  wrist_images:", batch["wrist_images"].shape)
 
 
 if __name__ == "__main__":
