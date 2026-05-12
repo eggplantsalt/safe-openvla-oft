@@ -189,6 +189,10 @@ def main() -> None:
     for k, v in summary.items():
         print(f"  {k}: {v}")
 
+    if summary.get("num_indexed_records", 0) == 0:
+        print("error: no KKT records were indexed. Check manifest path, JSONL paths, and require_kkt filtering.")
+        sys.exit(1)
+
     print("KKT sample keys:")
     printed_keys = _print_kkt_sample(index, args.max_kkt_print)
     if not printed_keys:
