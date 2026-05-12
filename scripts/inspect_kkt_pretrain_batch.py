@@ -60,8 +60,7 @@ def main() -> None:
 
     print("Dataset length:", len(dataset))
     if len(dataset) == 0:
-        print("No records found.")
-        return
+        raise SystemExit("error: no records found. Check manifest path, require_kkt filtering, and exported steps.jsonl files.")
 
     start_index = min(args.start_index, len(dataset) - 1)
     batch_size = min(args.batch_size, len(dataset) - start_index)
@@ -84,6 +83,12 @@ def main() -> None:
     pixel_values = pretrain_batch["pixel_values"]
     agentview = pixel_values.get("agentview")
     wrist = pixel_values.get("wrist")
+    if args.load_images:
+        if agentview is None:
+            raise SystemExit("error: pixel_values.agentview is None despite --load-images")
+        if not args.no_wrist_image and wrist is None:
+            raise SystemExit("error: pixel_values.wrist is None despite --load-images")
+
     print("pixel_values.agentview shape:", None if agentview is None else agentview.shape)
     print("pixel_values.wrist shape:", None if wrist is None else wrist.shape)
 
