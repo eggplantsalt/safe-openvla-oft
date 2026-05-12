@@ -215,6 +215,12 @@
 - 新增 KKT auxiliary heads 并使用 fake hidden states 做形状与 loss 兼容性检查。
 - 不修改 finetune.py，不调用真实 model.forward。
 
+## 18. Phase 9C：Action-Token Hidden Extraction Dry-Run
+
+- 新增 action-token hidden-state extraction helper，复用 OpenVLA-style action token mask 逻辑。
+- 使用 fake last_hidden_states 和 fake mask 做 KKT heads + loss dry-run。
+- 仍不修改 finetune.py，不调用真实 model.forward。
+
 ---
 
 **完成后报告**

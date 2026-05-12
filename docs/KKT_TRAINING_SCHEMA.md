@@ -206,3 +206,27 @@ Heads:
 Notes:
 - active output is a logit (for BCEWithLogitsLoss)
 - heads are not yet wired to OpenVLA hidden states in Phase 9B
+
+## Phase 9C Action-Token Hidden Extraction (Dry-Run)
+
+Phase 9C adds a helper to extract action-token hidden states from
+OpenVLA-style `last_hidden_states` using an `action_token_mask`.
+This phase still does not call real model forward or modify finetune.py.
+
+Helper module:
+- prismatic/models/kkt_hidden_extract.py
+
+Key inputs:
+- last_hidden_states: shape (B, L, H)
+- action_token_mask: shape (B, L), bool or 0/1 tensor
+
+Rules:
+- action_token_mask must select the same number of tokens per batch
+- at least one action token per batch is required
+- no padding is added in the helper
+
+Outputs:
+- action_hidden: shape (B, T, H)
+- current_hidden: shape (B, H)
+- chunk_hidden: shape (B, chunk_size, H)
+- num_action_tokens: int
