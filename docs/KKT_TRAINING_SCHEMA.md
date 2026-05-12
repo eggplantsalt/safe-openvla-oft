@@ -79,3 +79,54 @@ If explicit alignment keys are not present in OpenVLA samples:
 - Prefer updating the data export step in safetydistill to include full OpenVLA training samples
   (image, proprio, language, action, and KKT fields), or
 - Add explicit metadata fields in the RLDS pipeline at preprocessing time.
+
+## OpenVLA-Style Full Sample Schema (Phase 8B)
+
+When explicit alignment keys are not available in RLDS, safetydistill exports complete OpenVLA-style samples.
+Each step should include images, state, instruction, actions, and KKT fields in a single JSONL record.
+
+Expected step fields (minimum):
+
+- instruction
+- agentview_image or agentview_image_path
+- wrist_image or wrist_image_path
+- state
+- action_nominal
+- action_safe
+- action_delta
+- dual_variables
+- active_set
+- constraint_values
+- constraint_gradients
+- qp_status
+- task_suite_name
+- safety_level
+- task_index
+- episode_index
+- step_index
+
+This format avoids relying on RLDS ordering or sidecar alignment keys.
+
+## Phase 8B Inspection Usage
+
+Dataset adapter:
+- prismatic/vla/datasets/kkt_openvla_dataset.py
+
+Inspection script:
+- scripts/inspect_kkt_openvla_samples.py
+
+Example usage:
+
+```bash
+python scripts/inspect_kkt_openvla_samples.py \
+  --manifest-path /PATH/TO/manifest.json \
+  --batch-size 8
+```
+
+Optional image loading:
+
+```bash
+python scripts/inspect_kkt_openvla_samples.py \
+  --manifest-path /PATH/TO/manifest.json \
+  --load-images
+```

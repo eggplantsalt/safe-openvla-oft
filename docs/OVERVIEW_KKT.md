@@ -180,6 +180,12 @@
 - `inspect_kkt_openvla_alignment.py`：KKT-only inspection 必须可运行；OpenVLA dataset inspection 为可选分支。
 - 仍不进入训练 loop；对齐验证是进入 KKT loss 的前置条件。
 
+## 12. Phase 8B：OpenVLA-Style KKT Samples
+
+- 使用 safetydistill 导出的完整 OpenVLA-style KKT 样本，避免 RLDS sidecar 对齐问题。
+- 新增 `KKTOpenVLASampleDataset` 与 `collate_kkt_openvla_samples` 仅做样本与 batch inspection。
+- 仍不进入训练 loop；KKT loss 接入仍需后续阶段评估。
+
 ---
 
 **完成后报告**
