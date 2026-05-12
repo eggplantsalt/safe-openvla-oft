@@ -135,6 +135,8 @@ def main() -> None:
 
     print("current_hidden shape:", tuple(current_hidden.shape))
     print("chunk_hidden shape:", tuple(chunk_hidden.shape))
+    print("action_chunk_mask shape:", tuple(action_chunk_mask.shape))
+    print("action_chunk_mask mean:", float(action_chunk_mask.mean().item()))
 
     if head_outputs.get("kkt_current") is not None:
         for k, v in head_outputs["kkt_current"].items():
