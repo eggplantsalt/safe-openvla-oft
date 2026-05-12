@@ -198,6 +198,12 @@
 - 不修改 finetune.py，不进入 training loop。
 - 为 Phase 8E 接入真实 processor/tokenizer 做准备。
 
+## 15. Phase 8E：Processor Compatibility Inspection
+
+- 新增 processor/tokenizer 兼容性检查，支持 dummy 和 real（local-only）两种模式。
+- real 模式只允许本地 processor，不触发下载。
+- 不修改 finetune.py，不进入 training loop，不调用 model forward。
+
 ---
 
 **完成后报告**

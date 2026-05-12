@@ -169,3 +169,15 @@ Batch fields (summary):
 - actions / action_chunk_mask / proprio
 - kkt_targets.current / kkt_targets.chunk
 - kkt_masks.current_* / kkt_masks.chunk_* / action_chunk_mask
+
+## Phase 8E Processor Compatibility (Inspection)
+
+Phase 8E adds a processor/tokenizer compatibility adapter that can run in:
+
+- dummy mode: uses Phase 8D dummy tokenization and simple image scaling
+- real mode: attempts to load a local processor with local_files_only=True
+
+Notes:
+- real mode must not download any files; it only uses local paths.
+- dummy mode is not a substitute for the real tokenizer or processor.
+- no model forward or loss computation happens in Phase 8E.
