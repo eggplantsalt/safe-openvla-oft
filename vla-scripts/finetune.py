@@ -64,6 +64,7 @@ from prismatic.vla.constants import (
     PROPRIO_DIM,
 )
 from prismatic.vla.datasets import RLDSBatchTransform, RLDSDataset
+from prismatic.vla.datasets.kkt_finetune_dataset import KKTFinetuneCollator, KKTFinetuneDataset
 from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 
 # Sane Defaults
@@ -133,6 +134,13 @@ class FinetuneConfig:
     kkt_hidden_dim: Optional[int] = None             # Override hidden size for KKT heads
     kkt_chunk_size: Optional[int] = None             # Override action chunk size for KKT heads
     kkt_direction_dim: int = 6                       # KKT direction vector size
+
+    # KKT OpenVLA sample dataset (opt-in)
+    use_kkt_sample_dataset: bool = False             # Use safetydistill OpenVLA-style KKT samples (disabled by default)
+    kkt_manifest_path: Optional[Path] = None         # Manifest path for KKT OpenVLA samples
+    kkt_action_target: str = "safe"                  # safe | delta | nominal
+    kkt_require_kkt: bool = True                     # Skip samples without KKT fields when True
+    kkt_max_samples: Optional[int] = None            # Optional cap on number of KKT samples
 
     # fmt: on
 
@@ -819,6 +827,19 @@ def finetune(cfg: FinetuneConfig) -> None:
     )
     if cfg.enable_kkt_sense_training and not (cfg.use_l1_regression or cfg.use_diffusion):
         raise ValueError("KKT-SenseVLA hooks require continuous action training (L1 regression or diffusion)")
+    if cfg.use_kkt_sample_dataset:
+        if not cfg.enable_kkt_sense_training:
+            raise ValueError("use_kkt_sample_dataset requires enable_kkt_sense_training=True")
+        if cfg.kkt_manifest_path is None:
+            raise ValueError("use_kkt_sample_dataset requires --kkt_manifest_path")
+        if cfg.kkt_chunk_size is None:
+            raise ValueError("use_kkt_sample_dataset requires explicit --kkt_chunk_size")
+        if not cfg.use_l1_regression or cfg.use_diffusion:
+            raise ValueError("KKT sample dataset path currently supports L1 regression only")
+        if cfg.use_val_set:
+            raise NotImplementedError("KKT sample dataset path does not support validation yet")
+        if not cfg.use_proprio:
+            raise ValueError("KKT sample dataset path currently requires use_proprio=True")
 
     # Trim trailing forward slash ('/') in VLA path if it exists
     cfg.vla_path = cfg.vla_path.rstrip("/")
@@ -1061,33 +1082,56 @@ def finetune(cfg: FinetuneConfig) -> None:
         use_wrist_image=use_wrist_image,
         use_proprio=cfg.use_proprio,
     )
-    train_dataset = RLDSDataset(
-        cfg.data_root_dir,
-        cfg.dataset_name,
-        batch_transform,
-        resize_resolution=tuple(vla.module.config.image_sizes),
-        shuffle_buffer_size=cfg.shuffle_buffer_size,
-        image_aug=cfg.image_aug,
-    )
-    if cfg.use_val_set:
-        val_dataset = RLDSDataset(
+
+    if cfg.use_kkt_sample_dataset:
+        train_dataset = KKTFinetuneDataset(
+            manifest_path=str(cfg.kkt_manifest_path),
+            action_tokenizer=action_tokenizer,
+            tokenizer=processor.tokenizer,
+            image_transform=processor.image_processor.apply_transform,
+            prompt_builder_fn=PurePromptBuilder,
+            resize_resolution=tuple(vla.module.config.image_sizes),
+            require_kkt=cfg.kkt_require_kkt,
+            action_target=cfg.kkt_action_target,
+            chunk_size=cfg.kkt_chunk_size,
+            load_images=True,
+            use_wrist_image=use_wrist_image,
+            use_proprio=cfg.use_proprio,
+            max_samples=cfg.kkt_max_samples,
+            dataset_name="kkt_openvla",
+        )
+    else:
+        train_dataset = RLDSDataset(
             cfg.data_root_dir,
             cfg.dataset_name,
             batch_transform,
             resize_resolution=tuple(vla.module.config.image_sizes),
-            shuffle_buffer_size=cfg.shuffle_buffer_size // 10,
+            shuffle_buffer_size=cfg.shuffle_buffer_size,
             image_aug=cfg.image_aug,
-            train=False,
         )
+        if cfg.use_val_set:
+            val_dataset = RLDSDataset(
+                cfg.data_root_dir,
+                cfg.dataset_name,
+                batch_transform,
+                resize_resolution=tuple(vla.module.config.image_sizes),
+                shuffle_buffer_size=cfg.shuffle_buffer_size // 10,
+                image_aug=cfg.image_aug,
+                train=False,
+            )
 
     # [Important] Save dataset statistics so that we can unnormalize actions during inference
     if distributed_state.is_main_process:
         save_dataset_statistics(train_dataset.dataset_statistics, run_dir)
 
     # Create collator and dataloader
-    collator = PaddedCollatorForActionPrediction(
+    base_collator = PaddedCollatorForActionPrediction(
         processor.tokenizer.model_max_length, processor.tokenizer.pad_token_id, padding_side="right"
     )
+    if cfg.use_kkt_sample_dataset:
+        collator = KKTFinetuneCollator(base_collator)
+    else:
+        collator = base_collator
     dataloader = DataLoader(
         train_dataset,
         batch_size=cfg.batch_size,

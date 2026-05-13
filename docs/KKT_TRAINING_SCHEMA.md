@@ -291,3 +291,28 @@ Requirements:
 Risk note:
 - constants mismatch observed in some environments (NUM_ACTIONS_CHUNK=5, PROPRIO_DIM=7)
   vs KKT samples (chunk_size=8, state_dim=8), so explicit shape validation is required.
+
+## Phase 9F KKT Finetune Dataset (Opt-In)
+
+Phase 9F adds an opt-in dataset path that reads safetydistill OpenVLA-style
+KKT samples and produces training batches compatible with run_forward_pass.
+
+Dataset module:
+- prismatic/vla/datasets/kkt_finetune_dataset.py
+
+Opt-in args (finetune.py):
+- use_kkt_sample_dataset (default false)
+- kkt_manifest_path
+- kkt_action_target
+- kkt_require_kkt
+- kkt_max_samples
+
+Batch keys (summary):
+- pixel_values, input_ids, attention_mask, labels
+- actions, action_chunk_mask, proprio
+- kkt_targets.current, kkt_targets.chunk
+- kkt_masks.current_has_kkt, current_qp_valid, chunk_has_kkt, chunk_qp_valid, action_chunk_mask
+
+Notes:
+- labels must include action tokens for get_current_action_mask/get_next_actions_mask
+- first version supports L1 regression only, use_proprio=True, and no validation set

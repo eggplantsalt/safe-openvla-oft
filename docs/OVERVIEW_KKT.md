@@ -236,6 +236,13 @@
 - kkt_chunk_size 必须显式传入，避免 NUM_ACTIONS_CHUNK 与 KKT 样本 chunk_size 不一致。
 - 下一步 Phase 9F 再考虑真实训练 smoke test 或更完整 dataloader 接入。
 
+## 21. Phase 9F：KKT Finetune Dataset (Opt-In)
+
+- 新增 KKT OpenVLA sample dataset/collator 路径，补齐 kkt_targets/kkt_masks/action_chunk_mask。
+- 默认 RLDS path 不变，只有 use_kkt_sample_dataset 启用时才切换。
+- 第一版仅支持 L1 regression + use_proprio=True + no val set。
+- 下一步 Phase 9G 再做真实训练 smoke test。
+
 ---
 
 **完成后报告**
