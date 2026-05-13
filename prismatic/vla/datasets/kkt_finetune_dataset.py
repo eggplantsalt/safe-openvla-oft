@@ -222,13 +222,53 @@ class KKTFinetuneCollator:
                 raise ValueError("Inconsistent shape for %s: %s != %s" % (key, arr.shape, first_shape))
         return self._to_tensor(np.stack(arrays, axis=0))
 
-    def _stack_nested(self, instances: List[Dict[str, Any]], key: str, subkey: str):
-        arrays = [np.asarray(instance[key][subkey], dtype=np.float32) for instance in instances]
-        first_shape = arrays[0].shape
-        for arr in arrays:
-            if arr.shape != first_shape:
-                raise ValueError("Inconsistent shape for %s.%s: %s != %s" % (key, subkey, arr.shape, first_shape))
-        return self._to_tensor(np.stack(arrays, axis=0))
+    def _stack_nested(self, instances, key, subkey):
+        """Stack nested KKT fields.
 
+        Supports both:
+        - instance[key][subkey] = np.ndarray
+        - instance[key][subkey] = dict[str, np.ndarray]
+
+        The dict case is used by kkt_targets["current"] and
+        kkt_targets["chunk"], which contain multiple target fields.
+        """
+        values = [instance[key][subkey] for instance in instances]
+        if not values:
+            raise ValueError("Cannot stack empty nested values for %s.%s" % (key, subkey))
+
+        first = values[0]
+
+        if isinstance(first, dict):
+            output = {}
+            for field_name in first.keys():
+                arrays = []
+                for idx, value in enumerate(values):
+                    if not isinstance(value, dict):
+                        raise ValueError(
+                            "Mixed nested value types for %s.%s at index %d" % (key, subkey, idx)
+                        )
+                    if field_name not in value:
+                        raise ValueError(
+                            "Missing nested field %s.%s.%s at index %d"
+                            % (key, subkey, field_name, idx)
+                        )
+                    arrays.append(np.asarray(value[field_name], dtype=np.float32))
+
+                shapes = [arr.shape for arr in arrays]
+                if len(set(shapes)) != 1:
+                    raise ValueError(
+                        "Inconsistent shapes for %s.%s.%s: %s"
+                        % (key, subkey, field_name, shapes)
+                    )
+
+                output[field_name] = torch.from_numpy(np.stack(arrays, axis=0))
+            return output
+
+        arrays = [np.asarray(value, dtype=np.float32) for value in values]
+        shapes = [arr.shape for arr in arrays]
+        if len(set(shapes)) != 1:
+            raise ValueError("Inconsistent shapes for %s.%s: %s" % (key, subkey, shapes))
+
+        return torch.from_numpy(np.stack(arrays, axis=0))
     def _to_tensor(self, array: np.ndarray):
         return torch.from_numpy(np.asarray(array, dtype=np.float32))
