@@ -664,6 +664,7 @@ def save_training_checkpoint(
     proprio_projector,
     noisy_action_projector,
     action_head,
+    kkt_head,
     train_dataset,
     distributed_state,
 ) -> None:
@@ -679,6 +680,7 @@ def save_training_checkpoint(
         proprio_projector (nn.Module): Proprioceptive state projector module.
         noisy_action_projector (nn.Module): Noisy action projector module (only used for diffusion).
         action_head (nn.Module): Action head module.
+        kkt_head (nn.Module): KKT auxiliary head module.
         train_dataset (RLDSDataset): Training dataset.
         distributed_state (PartialState): Distributed training state.
 
@@ -722,6 +724,10 @@ def save_training_checkpoint(
 
         if (cfg.use_l1_regression or cfg.use_diffusion) and action_head is not None:
             torch.save(action_head.state_dict(), checkpoint_dir / f"action_head--{checkpoint_name_suffix}")
+
+        if cfg.enable_kkt_sense_training and kkt_head is not None:
+            kkt_state_dict = kkt_head.module.state_dict() if hasattr(kkt_head, "module") else kkt_head.state_dict()
+            torch.save(kkt_state_dict, checkpoint_dir / f"kkt_head--{checkpoint_name_suffix}")
 
         if cfg.use_film:
             # To be safe, just save the entire vision backbone (not just FiLM components)
@@ -1052,6 +1058,9 @@ def finetune(cfg: FinetuneConfig) -> None:
             use_chunk=True,
         )
         kkt_head = kkt_head.to(device_id)
+        if cfg.resume:
+            state_dict = load_checkpoint("kkt_head", cfg.vla_path, cfg.resume_step)
+            kkt_head.load_state_dict(state_dict)
         kkt_head = wrap_ddp(kkt_head, device_id, find_unused=True)
 
     # Get number of vision patches
@@ -1284,6 +1293,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                     proprio_projector=proprio_projector if cfg.use_proprio else None,
                     noisy_action_projector=noisy_action_projector if cfg.use_diffusion else None,
                     action_head=action_head if (cfg.use_l1_regression or cfg.use_diffusion) else None,
+                    kkt_head=kkt_head,
                     train_dataset=train_dataset,
                     distributed_state=distributed_state,
                 )
