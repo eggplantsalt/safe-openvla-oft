@@ -154,3 +154,10 @@ wandb/
 
 # Local model weights / checkpoints
 checkpoints/
+
+# Local experiment outputs
+runs_kkt_smoke/
+wandb/
+
+# Local model/checkpoint links or weights
+checkpoints/
