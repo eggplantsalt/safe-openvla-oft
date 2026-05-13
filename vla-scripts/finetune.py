@@ -94,6 +94,7 @@ class FinetuneConfig:
     # Training configuration
     batch_size: int = 8                              # Batch size per device (total batch size = batch_size * num GPUs)
     learning_rate: float = 5e-4                      # Learning rate
+    adam_epsilon: Optional[float] = None             # AdamW epsilon; None uses 1e-6 for fp16, 1e-8 otherwise
     lr_warmup_steps: int = 0                         # Number of steps to warm up learning rate (from 10% to 100%)
     num_steps_before_decay: int = 100_000            # Number of steps before LR decays by 10x
     grad_accumulation_steps: int = 1                 # Number of gradient accumulation steps
@@ -633,7 +634,7 @@ def compute_smoothened_metrics(metrics_deques) -> dict:
 
 def log_metrics_to_wandb(metrics, prefix, step, wandb_entity) -> None:
     """
-    Log metrics to Weights & Biases.
+    Log metrics to Weights & Biases and print a compact terminal summary.
 
     Args:
         metrics (dict): Dictionary of metrics to log
@@ -645,13 +646,30 @@ def log_metrics_to_wandb(metrics, prefix, step, wandb_entity) -> None:
         None.
     """
     log_dict = {}
+    terminal_items = []
+
     for name, value in metrics.items():
         # Map loss_value to Loss for better readability in W&B
         if name == "loss_value":
-            log_dict[f"{prefix}/Loss"] = value
+            wandb_key = f"{prefix}/Loss"
         # Keep other metrics as is
         else:
-            log_dict[f"{prefix}/{name.replace('_', ' ').title()}"] = value
+            wandb_key = f"{prefix}/{name.replace('_', ' ').title()}"
+
+        log_dict[wandb_key] = value
+
+        try:
+            if hasattr(value, "item"):
+                scalar = float(value.item())
+            else:
+                scalar = float(value)
+            terminal_items.append(f"{name}={scalar:.6g}")
+        except Exception:
+            terminal_items.append(f"{name}={value}")
+
+    if terminal_items:
+        print(f"[metrics][{prefix}][step={step}] " + " | ".join(terminal_items), flush=True)
+
     wandb_entity.log(log_dict, step=step)
 
 
@@ -1083,7 +1101,12 @@ def finetune(cfg: FinetuneConfig) -> None:
     if cfg.enable_kkt_sense_training:
         trainable_params += [param for param in kkt_head.parameters() if param.requires_grad]
     print(f"# total trainable params: {sum(p.numel() for p in trainable_params)}")
-    optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
+    adam_epsilon = cfg.adam_epsilon
+    if adam_epsilon is None:
+        adam_epsilon = 1e-6 if AMP_DTYPE == torch.float16 else 1e-8
+    print(f"Using AdamW epsilon: {adam_epsilon}")
+
+    optimizer = AdamW(trainable_params, lr=cfg.learning_rate, eps=adam_epsilon)
 
     # Record original learning rate
     original_lr = optimizer.param_groups[0]["lr"]
