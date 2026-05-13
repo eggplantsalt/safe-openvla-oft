@@ -179,6 +179,46 @@ def set_amp_dtype(amp_dtype: str) -> torch.dtype:
     return AMP_DTYPE
 
 
+def safe_dist_barrier() -> None:
+    """Call torch.distributed barrier only when a process group exists.
+
+    This keeps finetune.py compatible with both torchrun/DDP launches and
+    single-process smoke tests.
+    """
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+
+
+def resolve_training_device(device_id):
+    """Resolve int/str/torch.device device identifiers to a torch.device."""
+    if isinstance(device_id, torch.device):
+        return device_id
+    if torch.cuda.is_available():
+        if isinstance(device_id, int):
+            return torch.device(f"cuda:{device_id}")
+        if isinstance(device_id, str):
+            return torch.device(device_id)
+        return torch.device("cuda:0")
+    return torch.device("cpu")
+
+
+def move_tensor_tree_to_device(obj, device):
+    """Recursively move tensor leaves in a nested batch to the training device.
+
+    Floating tensors preserve dtype here. Explicit AMP casting is applied only
+    to model-forward floating inputs that need it.
+    """
+    if torch.is_tensor(obj):
+        return obj.to(device=device, non_blocking=True)
+    if isinstance(obj, dict):
+        return {k: move_tensor_tree_to_device(v, device) for k, v in obj.items()}
+    if isinstance(obj, tuple):
+        return tuple(move_tensor_tree_to_device(v, device) for v in obj)
+    if isinstance(obj, list):
+        return [move_tensor_tree_to_device(v, device) for v in obj]
+    return obj
+
+
 def remove_ddp_in_checkpoint(state_dict) -> dict:
     """
     Removes the 'module.' prefix from parameter names in a PyTorch model state dictionary that was saved using
@@ -257,19 +297,22 @@ def load_checkpoint(module_name: str, path: str, step: int, device: str = "cpu")
     return remove_ddp_in_checkpoint(state_dict)
 
 
-def wrap_ddp(module: nn.Module, device_id: int, find_unused: bool = False) -> DDP:
-    """
-    Wrap a module with DistributedDataParallel.
+class SingleProcessDDP(torch.nn.Module):
+    """Minimal DDP-compatible wrapper for single-process smoke tests."""
 
-    Args:
-        module (nn.Module): PyTorch module.
-        device_id (str): Device ID.
-        find_unused (bool): Whether to detect parameters without gradients in distributed training.
+    def __init__(self, module):
+        super().__init__()
+        self.module = module
 
-    Returns:
-        DistributedDataParallel: PyTorch module wrapped with DDP.
-    """
-    return DDP(module, device_ids=[device_id], find_unused_parameters=find_unused, gradient_as_bucket_view=True)
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+def wrap_ddp(module, device_id, find_unused=False):
+    if dist.is_available() and dist.is_initialized():
+        return DDP(module, device_ids=[device_id], find_unused_parameters=find_unused, gradient_as_bucket_view=True)
+    print("[info] torch.distributed is not initialized; using SingleProcessDDP wrapper")
+    return SingleProcessDDP(module)
 
 
 def count_parameters(module: nn.Module, name: str) -> None:
@@ -343,6 +386,20 @@ def run_forward_pass(
     compute_diffusion_l1=False,
     num_diffusion_steps_train=None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
+    # KKT sample batches come from a custom collator and may contain CPU tensors.
+    # Move all tensor leaves once before model forward so labels-derived masks,
+    # proprio, actions, pixel_values, and KKT targets share the model device.
+    target_device = resolve_training_device(device_id)
+    batch = move_tensor_tree_to_device(batch, target_device)
+
+    # Match the existing mixed-precision training path for floating model inputs.
+    if torch.is_tensor(batch.get("pixel_values")):
+        batch["pixel_values"] = batch["pixel_values"].to(dtype=AMP_DTYPE)
+    if torch.is_tensor(batch.get("proprio")):
+        batch["proprio"] = batch["proprio"].to(dtype=AMP_DTYPE)
+    if torch.is_tensor(batch.get("actions")):
+        batch["actions"] = batch["actions"].to(dtype=AMP_DTYPE)
+
     """
     Compute model forward pass and metrics for both training and validation.
 
@@ -371,7 +428,7 @@ def run_forward_pass(
     metrics = {}
 
     # Get ground-truth action labels
-    ground_truth_actions = batch["actions"].to(device_id).to(AMP_DTYPE)
+    ground_truth_actions = batch["actions"].to(dtype=AMP_DTYPE)
 
     # [Only for diffusion] Sample noisy actions used as input for noise predictor network
     if use_diffusion:
@@ -387,9 +444,9 @@ def run_forward_pass(
     # VLA forward pass
     with torch.autocast("cuda", dtype=AMP_DTYPE):
         output: CausalLMOutputWithPast = vla(
-            input_ids=batch["input_ids"].to(device_id),
-            attention_mask=batch["attention_mask"].to(device_id),
-            pixel_values=batch["pixel_values"].to(AMP_DTYPE).to(device_id),
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            pixel_values=batch["pixel_values"],
             labels=batch["labels"],
             output_hidden_states=True,
             proprio=batch["proprio"] if use_proprio else None,
@@ -401,7 +458,7 @@ def run_forward_pass(
         )
 
     # Get action masks needed for logging
-    ground_truth_token_ids = batch["labels"][:, 1:].to(device_id)
+    ground_truth_token_ids = batch["labels"][:, 1:]
     current_action_mask = get_current_action_mask(ground_truth_token_ids)
     next_actions_mask = get_next_actions_mask(ground_truth_token_ids)
 
@@ -723,7 +780,7 @@ def save_training_checkpoint(
         print(f"Saving Model Checkpoint for Step {log_step}")
 
     # Wait for directories to be created
-    dist.barrier()
+    safe_dist_barrier()
 
     # Save model components (main process only)
     if distributed_state.is_main_process:
@@ -754,7 +811,7 @@ def save_training_checkpoint(
             )
 
     # Wait for model components to be saved
-    dist.barrier()
+    safe_dist_barrier()
 
     # Merge LoRA weights into base model and save resulting model checkpoint
     # Note: Can be very slow on some devices; if so, we recommend merging offline
@@ -770,7 +827,7 @@ def save_training_checkpoint(
             print(f"Saved merged model for Step {log_step} at: {checkpoint_dir}")
 
         # Wait for merged model to be saved
-        dist.barrier()
+        safe_dist_barrier()
 
 
 def run_validation(
@@ -957,7 +1014,7 @@ def finetune(cfg: FinetuneConfig) -> None:
         check_model_logic_mismatch(cfg.vla_path)
 
     # Wait for model files to be synced
-    dist.barrier()
+    safe_dist_barrier()
 
     # Load processor and VLA
     processor = AutoProcessor.from_pretrained(cfg.vla_path, trust_remote_code=True)

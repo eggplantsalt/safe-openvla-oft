@@ -85,14 +85,27 @@ class OpenVLAServer:
             observation = payload
             instruction = observation["instruction"]
 
+            # HTTP JSON turns numpy arrays into Python lists. Convert them back
+            # before calling OpenVLA-OFT inference utilities, which expect arrays
+            # with .shape and numeric dtypes.
+            for image_key in ("full_image", "wrist_image"):
+                if image_key in observation:
+                    observation[image_key] = np.asarray(observation[image_key], dtype=np.uint8)
+
+            if "state" in observation:
+                observation["state"] = np.asarray(observation["state"], dtype=np.float32)
+
             action = get_vla_action(
                 self.cfg, self.vla, self.processor, observation, instruction, action_head=self.action_head, proprio_projector=self.proprio_projector, use_film=self.cfg.use_film,
             )
 
+            action_json = [np.asarray(a, dtype=float).tolist() for a in action]
+            response_payload = {"actions": action_json}
+
             if double_encode:
-                return JSONResponse(json_numpy.dumps(action))
+                return JSONResponse(json_numpy.dumps(response_payload))
             else:
-                return JSONResponse(action)
+                return JSONResponse(response_payload)
         except:  # noqa: E722
             logging.error(traceback.format_exc())
             logging.warning(
